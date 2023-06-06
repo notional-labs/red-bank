@@ -1,7 +1,8 @@
 use std::cmp::{max, min};
 
 use cosmwasm_std::{
-    Addr, BlockInfo, Decimal, Deps, OverflowError, OverflowOperation, StdError, StdResult, Uint128,
+    Addr, BlockInfo, Decimal, Deps, DepsMut, OverflowError, OverflowOperation, StdError, StdResult,
+    Uint128,
 };
 use mars_red_bank_types::{incentives::AssetIncentive, red_bank};
 
@@ -84,61 +85,61 @@ pub struct UserAssetIncentiveStatus {
     pub asset_incentive_updated: AssetIncentive,
 }
 
-pub fn compute_user_unclaimed_rewards(
+pub struct Collaterals {
+    pub user_collateral: Uint128,
+    pub total_collateral: Uint128,
+}
+
+pub fn compute_new_user_unclaimed_rewards(
     deps: Deps,
     block: &BlockInfo,
     red_bank_addr: &Addr,
     user_addr: &Addr,
     collateral_denom: &str,
     incentive_denom: &str,
+    mut asset_incentive: AssetIncentive,
+    collaterals: Option<Collaterals>,
 ) -> StdResult<(Uint128, Option<UserAssetIncentiveStatus>)> {
-    let mut unclaimed_rewards = USER_UNCLAIMED_REWARDS
-        .may_load(deps.storage, (user_addr, &collateral_denom, &incentive_denom))?
-        .unwrap_or_else(Uint128::zero);
-
-    let mut asset_incentive = ASSET_INCENTIVES
-        .load(deps.storage, (collateral_denom.to_string(), incentive_denom.to_string()))?; //TODO: Use may_load or handle error
-
     // Get asset user balances and total supply
-    let collateral: red_bank::UserCollateralResponse = deps.querier.query_wasm_smart(
-        red_bank_addr,
-        &red_bank::QueryMsg::UserCollateral {
-            user: user_addr.to_string(),
-            denom: collateral_denom.to_string(),
-        },
-    )?;
-    let market: red_bank::Market = deps.querier.query_wasm_smart(
-        red_bank_addr,
-        &red_bank::QueryMsg::Market {
-            denom: collateral_denom.to_string(),
-        },
-    )?;
+    let (user_collateral, total_collateral) = collaterals
+        .map(|x| Ok::<_, StdError>((x.user_collateral, x.total_collateral)))
+        .unwrap_or_else(|| {
+            let collateral: red_bank::UserCollateralResponse = deps.querier.query_wasm_smart(
+                red_bank_addr,
+                &red_bank::QueryMsg::UserCollateral {
+                    user: user_addr.to_string(),
+                    denom: collateral_denom.to_string(),
+                },
+            )?;
+            let market: red_bank::Market = deps.querier.query_wasm_smart(
+                red_bank_addr,
+                &red_bank::QueryMsg::Market {
+                    denom: collateral_denom.to_string(),
+                },
+            )?;
+            Ok((collateral.amount_scaled, market.collateral_total_scaled))
+        })?;
 
     // If user's balance is 0 there should be no rewards to accrue, so we don't care about
     // updating indexes. If the user's balance changes, the indexes will be updated correctly at
     // that point in time.
-    if collateral.amount_scaled.is_zero() {
-        return Ok((unclaimed_rewards, None));
+    if user_collateral.is_zero() {
+        return Ok((Uint128::zero(), None));
     }
 
-    update_asset_incentive_index(
-        &mut asset_incentive,
-        market.collateral_total_scaled,
-        block.time.seconds(),
-    )?;
+    update_asset_incentive_index(&mut asset_incentive, total_collateral, block.time.seconds())?;
 
     let user_asset_index = USER_ASSET_INDICES
         .may_load(deps.storage, (user_addr, &collateral_denom, &incentive_denom))?
         .unwrap_or_else(Decimal::zero);
 
+    let mut unclaimed_rewards = Uint128::zero();
+
     if user_asset_index != asset_incentive.index {
         // Compute user accrued rewards and update user index
-        let asset_accrued_rewards = compute_user_accrued_rewards(
-            collateral.amount_scaled,
-            user_asset_index,
-            asset_incentive.index,
-        )?;
-        unclaimed_rewards += asset_accrued_rewards;
+        let asset_accrued_rewards =
+            compute_user_accrued_rewards(user_collateral, user_asset_index, asset_incentive.index)?;
+        unclaimed_rewards = asset_accrued_rewards;
     }
 
     let user_asset_incentive_status_to_update = UserAssetIncentiveStatus {
@@ -147,4 +148,71 @@ pub fn compute_user_unclaimed_rewards(
     };
 
     Ok((unclaimed_rewards, Some(user_asset_incentive_status_to_update)))
+}
+
+pub fn update_user_rewards(
+    deps: DepsMut,
+    block: &BlockInfo,
+    red_bank_addr: &Addr,
+    user_addr: &Addr,
+    collateral_denom: &str,
+    incentive_denom: &str,
+    asset_incentive: &AssetIncentive,
+    collaterals: Option<Collaterals>,
+    clear_rewards: bool,
+) -> StdResult<(Uint128, Uint128, AssetIncentive)> {
+    let previous_rewards = USER_UNCLAIMED_REWARDS
+        .may_load(deps.storage, (user_addr, &collateral_denom, &incentive_denom))?
+        .unwrap_or_else(Uint128::zero);
+
+    let (new_unclaimed_rewards, user_asset_incentive_status) = compute_new_user_unclaimed_rewards(
+        deps.as_ref(),
+        block,
+        red_bank_addr,
+        user_addr,
+        collateral_denom,
+        incentive_denom,
+        asset_incentive.clone(),
+        collaterals,
+    )?;
+
+    // Save new rewards
+    let current_rewards = previous_rewards + new_unclaimed_rewards;
+    if clear_rewards {
+        USER_UNCLAIMED_REWARDS.save(
+            deps.storage,
+            (user_addr, &collateral_denom, &incentive_denom),
+            &Uint128::zero(),
+        )?;
+    } else {
+        USER_UNCLAIMED_REWARDS.save(
+            deps.storage,
+            (user_addr, &collateral_denom, &incentive_denom),
+            &current_rewards,
+        )?;
+    }
+
+    // Update user index and asset incentive index if necessary
+    let new_asset_incentive = if let Some(user_asset_incentive_status) = user_asset_incentive_status
+    {
+        let asset_incentive_updated = user_asset_incentive_status.asset_incentive_updated;
+        ASSET_INCENTIVES.save(
+            deps.storage,
+            (collateral_denom.to_string(), incentive_denom.to_string()),
+            &asset_incentive_updated,
+        )?;
+
+        if asset_incentive_updated.index != user_asset_incentive_status.user_index_current {
+            USER_ASSET_INDICES.save(
+                deps.storage,
+                (&user_addr, &collateral_denom, &incentive_denom),
+                &asset_incentive_updated.index,
+            )?;
+        }
+        asset_incentive_updated
+    } else {
+        asset_incentive.clone()
+    };
+
+    Ok((previous_rewards, current_rewards, new_asset_incentive))
 }

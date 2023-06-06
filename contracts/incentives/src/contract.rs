@@ -21,9 +21,10 @@ use mars_utils::helpers::{option_string_to_addr, validate_native_denom};
 use crate::{
     error::ContractError,
     helpers::{
-        compute_user_accrued_rewards, compute_user_unclaimed_rewards, update_asset_incentive_index,
+        compute_new_user_unclaimed_rewards, update_asset_incentive_index, update_user_rewards,
+        Collaterals,
     },
-    state::{self, ASSET_INCENTIVES, CONFIG, OWNER, USER_ASSET_INDICES, USER_UNCLAIMED_REWARDS},
+    state::{self, ASSET_INCENTIVES, CONFIG, OWNER},
 };
 
 pub const CONTRACT_NAME: &str = "crates.io:mars-incentives";
@@ -301,7 +302,7 @@ fn validate_params_for_new_incentive(
 }
 
 pub fn execute_balance_change(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
     user_addr: Addr,
@@ -325,57 +326,28 @@ pub fn execute_balance_change(
         .range(deps.storage, None, None, Order::Ascending)
         .collect::<StdResult<Vec<_>>>()?;
 
-    for (incentive_denom, mut asset_incentive) in asset_incentives {
-        update_asset_incentive_index(
-            &mut asset_incentive,
-            total_amount_scaled_before,
-            env.block.time.seconds(),
-        )?;
-        ASSET_INCENTIVES.save(
-            deps.storage,
-            (collateral_denom.clone(), incentive_denom.clone()),
+    for (incentive_denom, asset_incentive) in asset_incentives {
+        let (previous_rewards, current_rewards, new_asset_incentive) = update_user_rewards(
+            deps.branch(),
+            &env.block,
+            &red_bank_addr,
+            &user_addr,
+            &collateral_denom,
+            &incentive_denom,
             &asset_incentive,
+            Some(Collaterals {
+                user_collateral: user_amount_scaled_before,
+                total_collateral: total_amount_scaled_before,
+            }),
+            false,
         )?;
-
-        // Check if user has accumulated uncomputed rewards (which means index is not up to date)
-        let user_asset_index_key =
-            USER_ASSET_INDICES.key((&user_addr, &collateral_denom, &incentive_denom));
-
-        let user_asset_index =
-            user_asset_index_key.may_load(deps.storage)?.unwrap_or_else(Decimal::zero);
-
-        let mut accrued_rewards = Uint128::zero();
-
-        if user_asset_index != asset_incentive.index {
-            // Compute user accrued rewards and update state
-            accrued_rewards = compute_user_accrued_rewards(
-                user_amount_scaled_before,
-                user_asset_index,
-                asset_incentive.index,
-            )?;
-
-            // Store user accrued rewards as unclaimed
-            if !accrued_rewards.is_zero() {
-                USER_UNCLAIMED_REWARDS.update(
-                    deps.storage,
-                    (&user_addr, &collateral_denom, &incentive_denom),
-                    |ur: Option<Uint128>| -> StdResult<Uint128> {
-                        match ur {
-                            Some(unclaimed_rewards) => Ok(unclaimed_rewards + accrued_rewards),
-                            None => Ok(accrued_rewards),
-                        }
-                    },
-                )?;
-            }
-
-            user_asset_index_key.save(deps.storage, &asset_incentive.index)?;
-        }
+        let accrued_rewards = current_rewards - previous_rewards;
 
         event = event
             .add_attribute(format!("rewards_accrued_{}", incentive_denom), accrued_rewards)
             .add_attribute(
                 format!("asset_index_{}", incentive_denom),
-                asset_incentive.index.to_string(),
+                new_asset_incentive.index.to_string(),
             );
     }
 
@@ -383,7 +355,7 @@ pub fn execute_balance_change(
 }
 
 pub fn execute_claim_rewards(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
     start_after_collateral_denom: Option<String>,
@@ -407,41 +379,17 @@ pub fn execute_claim_rewards(
 
     let mut total_unclaimed_rewards: HashMap<String, Uint128> = HashMap::new();
 
-    for ((collateral_denom, incentive_denom), _) in asset_incentives {
-        let (unclaimed_rewards, user_asset_incentive_statuses_to_update) =
-            compute_user_unclaimed_rewards(
-                deps.as_ref(),
-                &env.block,
-                &red_bank_addr,
-                &user_addr,
-                &collateral_denom,
-                &incentive_denom,
-            )?;
-
-        // Commit updated asset_incentives and user indexes
-        if let Some(user_asset_incentive_status) = user_asset_incentive_statuses_to_update {
-            let asset_incentive_updated = user_asset_incentive_status.asset_incentive_updated;
-
-            ASSET_INCENTIVES.save(
-                deps.storage,
-                (collateral_denom.clone(), incentive_denom.clone()),
-                &asset_incentive_updated,
-            )?;
-
-            if asset_incentive_updated.index != user_asset_incentive_status.user_index_current {
-                USER_ASSET_INDICES.save(
-                    deps.storage,
-                    (&user_addr, &collateral_denom, &incentive_denom),
-                    &asset_incentive_updated.index,
-                )?
-            }
-        }
-
-        // clear unclaimed rewards
-        USER_UNCLAIMED_REWARDS.save(
-            deps.storage,
-            (&user_addr, &collateral_denom, &incentive_denom),
-            &Uint128::zero(),
+    for ((collateral_denom, incentive_denom), asset_incentive) in asset_incentives {
+        let (_, unclaimed_rewards, _) = update_user_rewards(
+            deps.branch(),
+            &env.block,
+            &red_bank_addr,
+            &user_addr,
+            &collateral_denom,
+            &incentive_denom,
+            &asset_incentive,
+            None,
+            true,
         )?;
 
         if !unclaimed_rewards.is_zero() {
@@ -596,14 +544,16 @@ pub fn query_user_unclaimed_rewards(
 
     let mut total_unclaimed_rewards: HashMap<String, Uint128> = HashMap::new();
 
-    for ((collateral_denom, incentive_denom), _) in asset_incentives {
-        let (unclaimed_rewards, _) = compute_user_unclaimed_rewards(
+    for ((collateral_denom, incentive_denom), asset_incentive) in asset_incentives {
+        let (unclaimed_rewards, _) = compute_new_user_unclaimed_rewards(
             deps,
             &env.block,
             &red_bank_addr,
             &user_addr,
             &collateral_denom,
             &incentive_denom,
+            asset_incentive,
+            None,
         )?;
         if let Some(x) = total_unclaimed_rewards.get_mut(&incentive_denom) {
             *x += unclaimed_rewards;
