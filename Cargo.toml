@@ -54,6 +54,7 @@ serde             = { version = "1.0.152", default-features = false, features = 
 thiserror         = "1.0.38"
 cw-paginate       = "0.2.1"
 strum             = "0.24.1"
+cw-item-set       = "0.7.1"
 
 # packages
 mars-health         = { version = "1.0.0", path = "./packages/health" }

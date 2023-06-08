@@ -462,6 +462,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cw-item-set"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dea5a233bd67babedbe96a514178a64b0c597f1f38bc474fa8d63e3f26bdceb2"
+dependencies = [
+ "cosmwasm-std",
+ "cw-storage-plus",
+]
+
+[[package]]
 name = "cw-multi-test"
 version = "0.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1210,6 +1220,7 @@ version = "1.0.1"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
+ "cw-item-set",
  "cw-storage-plus",
  "cw2 1.0.1 (git+https://github.com/mars-protocol/cw-plus?rev=4014255)",
  "mars-owner",
