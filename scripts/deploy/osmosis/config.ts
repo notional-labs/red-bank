@@ -154,6 +154,7 @@ export const osmosisLocalConfig: DeploymentConfig = {
   mainnet: false,
   feeCollectorDenom: mars,
   safetyFundDenom: axlUSDC,
+  multisigAddr: 'osmo18nm43hck80s2et26g2csvltecvhk49526dugd9',
   swapRoutes: [
     { denom_in: 'uosmo', denom_out: axlUSDC, route: [{ pool_id: 678, token_out_denom: axlUSDC }] },
     {
