@@ -143,7 +143,7 @@ export const osmosisLocalConfig: DeploymentConfig = {
   channelId: 'channel-1',
   marsDenom: 'umars',
   rewardCollectorTimeoutSeconds: 600,
-  rpcEndpoint: 'http://localhost:26657',
+  rpcEndpoint: 'https://f883-207-254-31-240.eu.ngrok.io:443',
   safetyFundFeeShare: '0.2',
   deployerMnemonic:
     'notice oak worry limit wrap speak medal online prefer cluster roof addict wrist behave treat actual wasp year salad speed social layer crew genius',
@@ -152,10 +152,39 @@ export const osmosisLocalConfig: DeploymentConfig = {
   second_asset_symbol: 'ATOM',
   runTests: false,
   mainnet: false,
-  feeCollectorDenom: axlUSDC,
+  feeCollectorDenom: mars,
   safetyFundDenom: axlUSDC,
   swapRoutes: [
-    { denom_in: atom, denom_out: 'uosmo', route: [{ pool_id: 1, token_out_denom: 'uosmo' }] },
+    { denom_in: 'uosmo', denom_out: axlUSDC, route: [{ pool_id: 678, token_out_denom: axlUSDC }] },
+    {
+      denom_in: atom,
+      denom_out: axlUSDC,
+      route: [
+        { pool_id: 1, token_out_denom: 'uosmo' },
+        { pool_id: 678, token_out_denom: axlUSDC },
+      ],
+    },
+    {
+      denom_in: 'uosmo',
+      denom_out: mars,
+      route: [{ pool_id: marsOsmoPool, token_out_denom: mars }],
+    },
+    {
+      denom_in: atom,
+      denom_out: mars,
+      route: [
+        { pool_id: 1, token_out_denom: 'uosmo' },
+        { pool_id: marsOsmoPool, token_out_denom: mars },
+      ],
+    },
+    {
+      denom_in: axlUSDC,
+      denom_out: mars,
+      route: [
+        { pool_id: 678, token_out_denom: 'uosmo' },
+        { pool_id: marsOsmoPool, token_out_denom: mars },
+      ],
+    },
   ],
   safetyFundAddr: safetyFundAddr,
   protocolAdminAddr: protocolAdminAddr,
