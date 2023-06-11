@@ -143,7 +143,7 @@ export const osmosisLocalConfig: DeploymentConfig = {
   channelId: 'channel-1',
   marsDenom: 'umars',
   rewardCollectorTimeoutSeconds: 600,
-  rpcEndpoint: 'https://f883-207-254-31-240.eu.ngrok.io:443',
+  rpcEndpoint: 'https://4e98-207-254-31-240.eu.ngrok.io:443',
   safetyFundFeeShare: '0.2',
   deployerMnemonic:
     'notice oak worry limit wrap speak medal online prefer cluster roof addict wrist behave treat actual wasp year salad speed social layer crew genius',
