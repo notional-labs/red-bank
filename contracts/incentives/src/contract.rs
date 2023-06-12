@@ -54,7 +54,7 @@ pub fn instantiate(
     let config = Config {
         address_provider: deps.api.addr_validate(&msg.address_provider)?,
         mars_denom: msg.mars_denom,
-        epoch_duration: todo!(),
+        epoch_duration: msg.epoch_duration,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -362,7 +362,7 @@ pub fn execute_claim_rewards(
         .add_attribute("user", user_addr.to_string());
     let mut events = vec![base_event];
 
-    let asset_incentives = state::paginate_incentive_indices(
+    let asset_incentives = state::paginate_incentive_states(
         deps.storage,
         start_after_collateral_denom,
         start_after_incentive_denom,
@@ -451,15 +451,15 @@ fn update_owner(
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&query_config(deps)?),
-        QueryMsg::AssetIncentive {
+        QueryMsg::IncentiveState {
             collateral_denom,
             incentive_denom,
-        } => to_binary(&query_asset_incentive(deps, collateral_denom, incentive_denom)?),
-        QueryMsg::AssetIncentives {
+        } => to_binary(&query_incentive_state(deps, collateral_denom, incentive_denom)?),
+        QueryMsg::IncentiveStates {
             start_after_collateral_denom,
             start_after_incentive_denom,
             limit,
-        } => to_binary(&query_asset_incentives(
+        } => to_binary(&query_incentive_states(
             deps,
             start_after_collateral_denom,
             start_after_incentive_denom,
@@ -492,30 +492,30 @@ pub fn query_config(deps: Deps) -> StdResult<ConfigResponse> {
     })
 }
 
-pub fn query_asset_incentive(
+pub fn query_incentive_state(
     deps: Deps,
     collateral_denom: String,
     incentive_denom: String,
 ) -> StdResult<IncentiveStateResponse> {
-    let asset_incentive =
+    let incentive_state =
         INCENTIVE_STATES.load(deps.storage, (&collateral_denom, &incentive_denom))?;
-    Ok(IncentiveStateResponse::from(collateral_denom, incentive_denom, asset_incentive))
+    Ok(IncentiveStateResponse::from(collateral_denom, incentive_denom, incentive_state))
 }
 
-pub fn query_asset_incentives(
+pub fn query_incentive_states(
     deps: Deps,
     start_after_collateral_denom: Option<String>,
     start_after_incentive_denom: Option<String>,
     limit: Option<u32>,
 ) -> StdResult<Vec<IncentiveStateResponse>> {
-    let asset_incentives = state::paginate_incentive_indices(
+    let incentive_states = state::paginate_incentive_states(
         deps.storage,
         start_after_collateral_denom,
         start_after_incentive_denom,
         limit,
     )?;
 
-    asset_incentives
+    incentive_states
         .into_iter()
         .map(|((collateral_denom, incentive_denom), ai)| {
             Ok(IncentiveStateResponse::from(collateral_denom, incentive_denom, ai))
@@ -534,7 +534,7 @@ pub fn query_user_unclaimed_rewards(
     let red_bank_addr = query_red_bank_address(deps)?;
     let user_addr = deps.api.addr_validate(&user)?;
 
-    let asset_incentives = state::paginate_incentive_indices(
+    let incentive_states = state::paginate_incentive_states(
         deps.storage,
         start_after_collateral_denom,
         start_after_incentive_denom,
@@ -543,7 +543,7 @@ pub fn query_user_unclaimed_rewards(
 
     let mut total_unclaimed_rewards: HashMap<String, Uint128> = HashMap::new();
 
-    for ((collateral_denom, incentive_denom), _) in asset_incentives {
+    for ((collateral_denom, incentive_denom), _) in incentive_states {
         let unclaimed_rewards = compute_user_unclaimed_rewards(
             &mut deps.storage.into(),
             &deps.querier,
