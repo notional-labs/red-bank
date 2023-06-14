@@ -16,7 +16,7 @@ doctest = false
 [features]
 # for quicker tests, cargo test --lib
 # for more explicit tests, cargo test --features=backtraces
-backtraces = ["cosmwasm-std/backtraces"]
+backtraces = ["cosmwasm-std/backtraces", "osmosis-std/backtraces"]
 
 [dependencies]
 anyhow                         = { workspace = true }

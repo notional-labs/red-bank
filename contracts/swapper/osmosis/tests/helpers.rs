@@ -2,11 +2,12 @@ use std::{fmt::Display, str::FromStr};
 
 use cosmwasm_std::{Coin, Decimal, Uint128};
 use mars_swapper::msgs::InstantiateMsg;
+use mars_swapper_osmosis::route::SwapAmountInRoute;
 use osmosis_std::types::osmosis::gamm::v1beta1::{
-    MsgSwapExactAmountIn, MsgSwapExactAmountInResponse, SwapAmountInRoute,
+    MsgSwapExactAmountIn, MsgSwapExactAmountInResponse,
 };
 use osmosis_test_tube::{
-    cosmrs::proto::cosmos::bank::v1beta1::QueryBalanceRequest, Account, Bank, ExecuteResponse,
+    osmosis_std::types::cosmos::bank::v1beta1::QueryBalanceRequest, Account, Bank, ExecuteResponse,
     Gamm, OsmosisTestApp, Runner, RunnerError, SigningAccount, Wasm,
 };
 

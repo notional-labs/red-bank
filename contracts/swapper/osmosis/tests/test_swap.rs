@@ -2,7 +2,7 @@ use cosmwasm_std::{coin, Addr, Decimal};
 use mars_swapper::msgs::ExecuteMsg;
 use mars_swapper_base::ContractError;
 use mars_swapper_osmosis::route::OsmosisRoute;
-use osmosis_std::types::osmosis::gamm::v1beta1::SwapAmountInRoute;
+use osmosis_std::types::osmosis::poolmanager::v1beta1::SwapAmountInRoute;
 use osmosis_test_tube::{Account, Bank, FeeSetting, Gamm, Module, OsmosisTestApp, Wasm};
 
 use crate::helpers::{
