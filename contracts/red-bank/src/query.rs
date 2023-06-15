@@ -43,18 +43,23 @@ pub fn query_markets(
     deps: Deps,
     start_after: Option<String>,
     limit: Option<u32>,
-) -> StdResult<Vec<Market>> {
-    let start = start_after.map(|denom| Bound::ExclusiveRaw(denom.into_bytes()));
-    let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
-
-    MARKETS
+) -> Result<(Vec<Market>, Option<String>), StdError> {
+    let start = start_after.clone().map(|denom| Bound::ExclusiveRaw(denom.into_bytes()));
+    let limit = limit.unwrap_or(DEFAULT_LIMIT) as usize;
+    let mut last_key: Option<String> = start_after;
+    let markets: StdResult<Vec<Market>> = MARKETS
         .range(deps.storage, start, None, Order::Ascending)
         .take(limit)
         .map(|item| {
-            let (_, market) = item?;
+            let (key, market) = item?;
+            last_key = Some(key);
             Ok(market)
         })
-        .collect()
+        .collect();
+    let with_pagination: Result<(Vec<Market>, Option<String>), _> =
+        markets.map(|vec| (vec, last_key));
+        
+    return with_pagination;
 }
 
 pub fn query_uncollateralized_loan_limit(
